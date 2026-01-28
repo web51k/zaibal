@@ -141,7 +141,7 @@ def handler(msg):
     if text == "➕ Пополнить баланс":
         bot.send_message(
             chat_id,
-            "➕ Напишите в оригинальном Telegram:\n@mrVudik",
+            "➕ Напишите в бета Telegram:\n@aktve",
             reply_markup=menu_only_kb()
         )
         return
@@ -151,7 +151,7 @@ def handler(msg):
         bot.send_message(
             chat_id,
             "ℹ️ Darryl coin — внутренняя валюта для обмена D$.\n"
-            "Создано для обучения и фана 🔥",
+            "Создано просто так🔥",
             reply_markup=menu_only_kb()
         )
         return
@@ -188,7 +188,7 @@ def handler(msg):
             state["step"] = "wallet"
             bot.send_message(
                 chat_id,
-                "✍️ Введите адрес кошелька (dQ<user_id>):",
+                "✍️ Введите адрес кошелька (dQ...):",
                 reply_markup=menu_only_kb()
             )
             return
