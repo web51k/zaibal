@@ -255,4 +255,4 @@ def handler(msg):
 # ===== RUN =====
 create_db()
 print("🔥 Darryl Coin Bot запущен (FIXED, CONFIRM ENABLED)")
-bot.infinity_polling(non_stop=True)
+bot.infinity_polling()
