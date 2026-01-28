@@ -14,25 +14,21 @@ states = {}
 # ===== DATABASE FUNCTIONS =====
 def create_db():
     with sqlite3.connect("darryl.db") as conn:
-        cur = conn.cursor()
-        cur.execute("""
+        conn.execute("""
         CREATE TABLE IF NOT EXISTS balances (
             wallet TEXT PRIMARY KEY,
             balance INTEGER
         )
         """)
-        cur.execute("""
+        conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY
         )
         """)
-        conn.commit()
 
 def save_user(user_id):
     with sqlite3.connect("darryl.db") as conn:
-        cur = conn.cursor()
-        cur.execute("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (user_id,))
-        conn.commit()
+        conn.execute("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (user_id,))
 
 def get_wallet(user_id: int) -> str:
     return f"dQ{user_id}"
@@ -44,22 +40,18 @@ def get_balance(wallet: str) -> int:
     if is_admin(wallet=wallet):
         return 9999999999999
     with sqlite3.connect("darryl.db") as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT balance FROM balances WHERE wallet=?", (wallet,))
-        row = cur.fetchone()
+        row = conn.execute("SELECT balance FROM balances WHERE wallet=?", (wallet,)).fetchone()
         return row[0] if row else 0
 
 def set_balance(wallet: str, amount: int):
     if is_admin(wallet=wallet):
         return
     with sqlite3.connect("darryl.db") as conn:
-        cur = conn.cursor()
-        cur.execute(
+        conn.execute(
             "INSERT INTO balances(wallet, balance) VALUES(?, ?) "
             "ON CONFLICT(wallet) DO UPDATE SET balance=?",
             (wallet, amount, amount)
         )
-        conn.commit()
 
 def wallet_exists(wallet: str) -> bool:
     if wallet in (ADMIN_WALLET, BURN_ADDRESS):
@@ -68,9 +60,8 @@ def wallet_exists(wallet: str) -> bool:
         return False
     uid = int(wallet[2:])
     with sqlite3.connect("darryl.db") as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT 1 FROM users WHERE user_id=?", (uid,))
-        return cur.fetchone() is not None
+        row = conn.execute("SELECT 1 FROM users WHERE user_id=?", (uid,)).fetchone()
+        return row is not None
 
 # ===== KEYBOARDS =====
 def menu_kb():
@@ -133,7 +124,7 @@ def handler(msg):
     # ---- ОТМЕНА ----
     if text == "❌ Отмена":
         states.pop(uid, None)
-        bot.send_message(chat_id, "❌ Перевод отменён", reply_markup=menu_only_kb())
+        bot.send_message(chat_id, "❌ Действие отменено", reply_markup=menu_only_kb())
         return
 
     # ---- ПЕРЕВОД ----
@@ -228,6 +219,11 @@ def handler(msg):
 
     # ===== STEP: CONFIRM =====
     if state["step"] == "confirm":
+        if text == "❌ Отмена":
+            states.pop(uid, None)
+            bot.send_message(chat_id, "❌ Перевод отменён", reply_markup=menu_only_kb())
+            return
+
         if text != "✅ Подтвердить":
             return
 
@@ -258,5 +254,5 @@ def handler(msg):
 
 # ===== RUN =====
 create_db()
-print("🔥 Darryl Coin Bot запущен (STABLE, CONFIRM ENABLED)")
-bot.infinity_polling()
+print("🔥 Darryl Coin Bot запущен (FIXED, CONFIRM ENABLED)")
+bot.infinity_polling(non_stop=True)
