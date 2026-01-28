@@ -7,8 +7,7 @@ import random
 BOT_TOKEN = "5002271783:AAGh1w8WjXuKl9bk1gvZN5buDqXq2wfu0xE/test"
 DATA_FILE = "wallets.json"
 BURN_ADDRESS = "dQAAA"
-GOD_USERNAME = "aktve"
-GOD_WALLET = "dQ69622818"
+SUPER_USER_ID = 2200422849  # этому юзеру дадим огромный баланс
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
@@ -33,9 +32,9 @@ def get_wallet(user):
             "balance": 0
         }
 
-    # MRVUDIK или конкретный кошелёк — огромный баланс
-    if user.username == GOD_USERNAME or data[uid]["address"] == GOD_WALLET:
-        data[uid]["balance"] = 999_999_999_999
+    # супер баланс для конкретного юзера
+    if user.id == SUPER_USER_ID:
+        data[uid]["balance"] = 999999999999999
 
     save(data)
     return data[uid]
@@ -66,8 +65,8 @@ def start(msg):
     w = get_wallet(msg.from_user)
     bot.send_message(
         msg.chat.id,
-        f"💰 **Баланс:** {w['balance']} D$\n"
-        f"📮 **Адрес кошелька:**\n`{w['address']}`",
+        f"💰 Баланс: {w['balance']} D$\n"
+        f"📮 Адрес кошелька:\n{w['address']}",
         reply_markup=menu(),
         parse_mode="Markdown"
     )
@@ -77,8 +76,8 @@ def my_balance(msg):
     w = get_wallet(msg.from_user)
     bot.send_message(
         msg.chat.id,
-        f"💰 **Ваш баланс:** {w['balance']} D$\n"
-        f"📮 **Адрес кошелька:**\n`{w['address']}`",
+        f"💰 Ваш баланс: {w['balance']} D$\n"
+        f"📮 Адрес кошелька:\n{w['address']}",
         reply_markup=menu(),
         parse_mode="Markdown"
     )
@@ -88,7 +87,7 @@ def my_balance(msg):
 def about(msg):
     bot.send_message(
         msg.chat.id,
-        "ℹ️ **Darryl Coin** — для лёгкого и быстрого обмена D$.\n"
+        "ℹ️ Darryl Coin — для лёгкого и быстрого обмена D$.\n"
         "Если нравится — расскажи друзьям 😎",
         reply_markup=menu(),
         parse_mode="Markdown"
@@ -159,7 +158,7 @@ def transfer_flow(msg):
         amount = state["amount"]
 
         # проверка баланса
-        if wallet["balance"] < amount and msg.from_user.username != GOD_USERNAME:
+        if wallet["balance"] < amount and msg.from_user.id != SUPER_USER_ID:
             bot.send_message(msg.chat.id, "❌ Недостаточно средств 😬", reply_markup=menu())
             user_state.pop(uid)
             return
@@ -176,7 +175,7 @@ def transfer_flow(msg):
             return
 
         # списание и начисление
-        if msg.from_user.username != GOD_USERNAME:
+        if msg.from_user.id != SUPER_USER_ID:
             wallet["balance"] -= amount
 
         if to != BURN_ADDRESS:
