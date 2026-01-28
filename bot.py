@@ -1,201 +1,262 @@
 import telebot
 from telebot import types
-import json
-import os
-import random
+import sqlite3
 
-BOT_TOKEN = "5002271783:AAGh1w8WjXuKl9bk1gvZN5buDqXq2wfu0xE/test"
-DATA_FILE = "wallets.json"
+TOKEN = "5002271783:AAGh1w8WjXuKl9bk1gvZN5buDqXq2wfu0xE/test"
+bot = telebot.TeleBot(TOKEN)
+
+ADMIN_ID = 2200422849
+ADMIN_WALLET = "dQ2200422849"
 BURN_ADDRESS = "dQAAA"
-SUPER_USER_ID = 2200422849  # этому юзеру дадим огромный баланс
 
-bot = telebot.TeleBot(BOT_TOKEN)
+states = {}
 
-# ======== utils ========
-def load():
-    if not os.path.exists(DATA_FILE):
-        return {}
-    with open(DATA_FILE, "r") as f:
-        return json.load(f)
+# ===== DATABASE FUNCTIONS =====
+def create_db():
+    with sqlite3.connect("darryl.db") as conn:
+        cur = conn.cursor()
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS balances (
+            wallet TEXT PRIMARY KEY,
+            balance INTEGER
+        )
+        """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY
+        )
+        """)
+        conn.commit()
 
-def save(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+def save_user(user_id):
+    with sqlite3.connect("darryl.db") as conn:
+        cur = conn.cursor()
+        cur.execute("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (user_id,))
+        conn.commit()
 
-def get_wallet(user):
-    data = load()
-    uid = str(user.id)
+def get_wallet(user_id: int) -> str:
+    return f"dQ{user_id}"
 
-    if uid not in data:
-        data[uid] = {
-            "address": "dQ" + str(random.randint(10000000, 99999999)),
-            "balance": 0
-        }
+def is_admin(user_id=None, wallet=None) -> bool:
+    return user_id == ADMIN_ID or wallet == ADMIN_WALLET
 
-    # супер баланс для конкретного юзера
-    if user.id == SUPER_USER_ID:
-        data[uid]["balance"] = 999999999999999
+def get_balance(wallet: str) -> int:
+    if is_admin(wallet=wallet):
+        return 9999999999999
+    with sqlite3.connect("darryl.db") as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT balance FROM balances WHERE wallet=?", (wallet,))
+        row = cur.fetchone()
+        return row[0] if row else 0
 
-    save(data)
-    return data[uid]
+def set_balance(wallet: str, amount: int):
+    if is_admin(wallet=wallet):
+        return
+    with sqlite3.connect("darryl.db") as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO balances(wallet, balance) VALUES(?, ?) "
+            "ON CONFLICT(wallet) DO UPDATE SET balance=?",
+            (wallet, amount, amount)
+        )
+        conn.commit()
 
-user_state = {}
+def wallet_exists(wallet: str) -> bool:
+    if wallet in (ADMIN_WALLET, BURN_ADDRESS):
+        return True
+    if not wallet.startswith("dQ") or not wallet[2:].isdigit():
+        return False
+    uid = int(wallet[2:])
+    with sqlite3.connect("darryl.db") as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM users WHERE user_id=?", (uid,))
+        return cur.fetchone() is not None
 
-# ======== клавиатуры ========
-def menu():
+# ===== KEYBOARDS =====
+def menu_kb():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add("💰 Мой баланс")
     kb.add("💸 Перевести D$")
     kb.add("➕ Пополнить баланс")
     kb.add("ℹ️ О нас")
     return kb
 
-def nav_kb(step):
+def menu_only_kb():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    if step != "address":
-        kb.add("🔙 Назад")
-    if step == "comment":
-        kb.add("⏭ Пропустить")
+    kb.add("⬅️ В меню")
+    return kb
+
+def amount_kb():
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("⬅️ Назад")
+    kb.add("⬅️ В меню")
+    return kb
+
+def confirm_kb():
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("✅ Подтвердить")
     kb.add("❌ Отмена")
     return kb
 
-# ======== start / баланс ========
+# ===== MENU =====
+def show_menu(chat_id, user_id):
+    wallet = get_wallet(user_id)
+    balance = get_balance(wallet)
+    bot.send_message(
+        chat_id,
+        f"💰 Баланс: {balance} D$\n"
+        f"🏦 Кошелёк: `{wallet}`",
+        parse_mode="Markdown",
+        reply_markup=menu_kb()
+    )
+
+# ===== START =====
 @bot.message_handler(commands=["start"])
 def start(msg):
-    w = get_wallet(msg.from_user)
-    bot.send_message(
-        msg.chat.id,
-        f"💰 Баланс: {w['balance']} D$\n"
-        f"📮 Адрес кошелька:\n{w['address']}",
-        reply_markup=menu(),
-        parse_mode="Markdown"
-    )
+    save_user(msg.from_user.id)
+    show_menu(msg.chat.id, msg.from_user.id)
 
-@bot.message_handler(func=lambda m: m.text == "💰 Мой баланс")
-def my_balance(msg):
-    w = get_wallet(msg.from_user)
-    bot.send_message(
-        msg.chat.id,
-        f"💰 Ваш баланс: {w['balance']} D$\n"
-        f"📮 Адрес кошелька:\n{w['address']}",
-        reply_markup=menu(),
-        parse_mode="Markdown"
-    )
-
-# ======== меню ========
-@bot.message_handler(func=lambda m: m.text == "ℹ️ О нас")
-def about(msg):
-    bot.send_message(
-        msg.chat.id,
-        "ℹ️ Darryl Coin — для лёгкого и быстрого обмена D$.\n"
-        "Если нравится — расскажи друзьям 😎",
-        reply_markup=menu(),
-        parse_mode="Markdown"
-    )
-
-@bot.message_handler(func=lambda m: m.text == "➕ Пополнить баланс")
-def topup(msg):
-    bot.send_message(
-        msg.chat.id,
-        "➕ Для пополнения напиши в оригинальном Telegram:\n@mrVudik",
-        reply_markup=menu()
-    )
-
-@bot.message_handler(func=lambda m: m.text == "💸 Перевести D$")
-def transfer_start(msg):
-    user_state[msg.from_user.id] = {"step": "address"}
-    bot.send_message(
-        msg.chat.id,
-        "✍️ Введите адрес кошелька получателя:",
-        reply_markup=nav_kb("address")
-    )
-
-# ======== перевод ========
-@bot.message_handler(func=lambda m: m.from_user.id in user_state)
-def transfer_flow(msg):
+# ===== HANDLER =====
+@bot.message_handler(func=lambda m: True)
+def handler(msg):
     uid = msg.from_user.id
+    chat_id = msg.chat.id
     text = msg.text.strip()
-    state = user_state[uid]
-    data = load()
-    wallet = get_wallet(msg.from_user)
 
-    # ❌ Отмена
-    if text == "❌ Отмена":
-        user_state.pop(uid)
-        bot.send_message(msg.chat.id, "❌ Перевод отменён.", reply_markup=menu())
+    save_user(uid)
+
+    # ---- В МЕНЮ ----
+    if text == "⬅️ В меню":
+        states.pop(uid, None)
+        show_menu(chat_id, uid)
         return
 
-    # 🔙 Назад
-    if text == "🔙 Назад":
-        if state["step"] == "amount":
-            state["step"] = "address"
-            bot.send_message(msg.chat.id, "✍️ Введите адрес кошелька:", reply_markup=nav_kb("address"))
-            return
-        if state["step"] == "comment":
-            state["step"] = "amount"
-            bot.send_message(msg.chat.id, "💸 Введите сумму D$:", reply_markup=nav_kb("amount"))
+    # ---- ОТМЕНА ----
+    if text == "❌ Отмена":
+        states.pop(uid, None)
+        bot.send_message(chat_id, "❌ Перевод отменён", reply_markup=menu_only_kb())
+        return
+
+    # ---- ПЕРЕВОД ----
+    if text == "💸 Перевести D$":
+        states[uid] = {"step": "wallet"}
+        bot.send_message(
+            chat_id,
+            "✍️ Введите адрес кошелька (dQ<user_id>):",
+            reply_markup=menu_only_kb()
+        )
+        return
+
+    # ---- ПОПОЛНИТЬ ----
+    if text == "➕ Пополнить баланс":
+        bot.send_message(
+            chat_id,
+            "➕ Напишите в оригинальном Telegram:\n@mrVudik",
+            reply_markup=menu_only_kb()
+        )
+        return
+
+    # ---- О НАС ----
+    if text == "ℹ️ О нас":
+        bot.send_message(
+            chat_id,
+            "ℹ️ Darryl coin — внутренняя валюта для обмена D$.\n"
+            "Создано для обучения и фана 🔥",
+            reply_markup=menu_only_kb()
+        )
+        return
+
+    # ---- STATE ----
+    if uid not in states:
+        return
+
+    state = states[uid]
+
+    # ===== STEP: WALLET =====
+    if state["step"] == "wallet":
+        if not wallet_exists(text):
+            bot.send_message(
+                chat_id,
+                "❌ Кошелёк не найден.\nПользователь ещё не писал боту.",
+                reply_markup=menu_only_kb()
+            )
+            states.pop(uid)
             return
 
-    # ===== шаги =====
-    if state["step"] == "address":
         state["to"] = text
         state["step"] = "amount"
-        bot.send_message(msg.chat.id, "💸 Введите сумму D$:", reply_markup=nav_kb("amount"))
+        bot.send_message(
+            chat_id,
+            "💵 Введите сумму D$:",
+            reply_markup=amount_kb()
+        )
         return
 
+    # ===== STEP: AMOUNT =====
     if state["step"] == "amount":
-        if not text.isdigit() or int(text) <= 0:
-            bot.send_message(msg.chat.id, "❗ Введите корректное число 😅", reply_markup=nav_kb("amount"))
-            return
-        state["amount"] = int(text)
-        state["step"] = "comment"
-        bot.send_message(msg.chat.id, "📝 Введите комментарий к переводу:", reply_markup=nav_kb("comment"))
-        return
-
-    if state["step"] == "comment":
-        comment = "" if text == "⏭ Пропустить" else text
-        to = state["to"]
-        amount = state["amount"]
-
-        # проверка баланса
-        if wallet["balance"] < amount and msg.from_user.id != SUPER_USER_ID:
-            bot.send_message(msg.chat.id, "❌ Недостаточно средств 😬", reply_markup=menu())
-            user_state.pop(uid)
-            return
-
-        receiver_id = None
-        for k, v in data.items():
-            if v["address"] == to:
-                receiver_id = k
-                break
-
-        if to != BURN_ADDRESS and receiver_id is None:
-            bot.send_message(msg.chat.id, "❌ **Кошёлек не найден!** 🧐", reply_markup=menu(), parse_mode="Markdown")
-            user_state.pop(uid)
-            return
-
-        # списание и начисление
-        if msg.from_user.id != SUPER_USER_ID:
-            wallet["balance"] -= amount
-
-        if to != BURN_ADDRESS:
-            data[receiver_id]["balance"] += amount
+        if text == "⬅️ Назад":
+            state["step"] = "wallet"
             bot.send_message(
-                int(receiver_id),
-                f"📥 **Пополнение Darryl Coin!**\n\n💰 Сумма: {amount} D$\n📮 Отправитель: `{wallet['address']}`\n📝 Комментарий: {comment or '—'}",
-                parse_mode="Markdown"
+                chat_id,
+                "✍️ Введите адрес кошелька (dQ<user_id>):",
+                reply_markup=menu_only_kb()
             )
+            return
 
-        save(data)
+        if not text.isdigit() or int(text) <= 0:
+            bot.send_message(chat_id, "❌ Введите корректную сумму", reply_markup=menu_only_kb())
+            return
+
+        amount = int(text)
+        from_wallet = get_wallet(uid)
+
+        if not is_admin(uid, from_wallet) and get_balance(from_wallet) < amount:
+            bot.send_message(chat_id, "❌ Недостаточно средств", reply_markup=menu_only_kb())
+            states.pop(uid)
+            return
+
+        state["amount"] = amount
+        state["step"] = "confirm"
 
         bot.send_message(
-            msg.chat.id,
-            f"✅ **Перевод выполнен!**\n💸 {amount} D$ → `{to}` 😎",
-            reply_markup=menu(),
-            parse_mode="Markdown"
+            chat_id,
+            f"⚠️ Подтвердите перевод:\n\n"
+            f"➡️ Кошелёк: {state['to']}\n"
+            f"💸 Сумма: {amount} D$",
+            reply_markup=confirm_kb()
         )
-        user_state.pop(uid)
+        return
 
-# ======== запуск ========
-print("🚀 Darryl Coin bot запущен")
-bot.infinity_polling()
+    # ===== STEP: CONFIRM =====
+    if state["step"] == "confirm":
+        if text != "✅ Подтвердить":
+            return
+
+        from_wallet = get_wallet(uid)
+        to_wallet = state["to"]
+        amount = state["amount"]
+
+        if not is_admin(uid, from_wallet):
+            set_balance(from_wallet, get_balance(from_wallet) - amount)
+
+        if to_wallet != BURN_ADDRESS:
+            set_balance(to_wallet, get_balance(to_wallet) + amount)
+            to_id = int(to_wallet[2:])
+            bot.send_message(
+                to_id,
+                f"💰 Пополнение DC кошелька!\n"
+                f"Сумма: {amount} D$\n"
+                f"Отправитель: {from_wallet}"
+            )
+
+        bot.send_message(
+            chat_id,
+            f"✅ Перевод выполнен!\n{amount} D$ → {to_wallet}",
+            reply_markup=menu_only_kb()
+        )
+
+        states.pop(uid)
+
+# ===== RUN =====
+create_db()
+print("🔥 Darryl Coin Bot запущен (STABLE, CONFIRM ENABLED)")
+bot.infinity_polling(non_stop=True)
