@@ -8,7 +8,7 @@ BOT_TOKEN = "5002271783:AAGh1w8WjXuKl9bk1gvZN5buDqXq2wfu0xE/test"
 DATA_FILE = "wallets.json"
 BURN_ADDRESS = "dQAAA"
 GOD_USERNAME = "aktve"
-GOD_WALLET = "dQ34394875"
+GOD_WALLET = "dQ69622818"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
